@@ -1,0 +1,4 @@
+resp <- uniform {0,1};
+coin <- uniform {0,1};
+count <- uniform {coin,resp};
+leak(count)
