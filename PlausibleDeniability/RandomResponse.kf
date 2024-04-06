@@ -1,16 +1,11 @@
-N = 2; // Set N to number of participants
+N = 5; // Set N to number of participants
 i = 0;
 Resps = [];
+count = 0;
 while i < N:
   resp <- uniform [0, 1];
   Resps.append(resp);
+  coin <- uniform [0, 1];
+  count <- uniform [count + coin, count + resp];
   i = i + 1;
-
-i = 0;
-count = 0;
-while i < N:
-   resp = Resps[i];
-   coin <- uniform [0, 1];
-   count <- uniform [count + coin, count + resp];
-   i = i + 1;
 leak(count)
