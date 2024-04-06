@@ -1,0 +1,12 @@
+N = 3; // Set N to number of participants
+// Set desired 0<=gamma<=0.5
+gamma = 0.4; // gamma = 0.25 is the regular Random Response Protocol
+i = 0;
+Resps = [];
+count = 0;
+while i < N:
+  resp <- uniform [0, 1];
+  Resps.append(resp);
+  count <- (count + 1 - resp) [0.5-gamma] (count + resp);
+  i = i + 1;
+leak(count)
