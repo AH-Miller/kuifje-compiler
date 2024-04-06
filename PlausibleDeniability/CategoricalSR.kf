@@ -1,0 +1,4 @@
+resp <- uniform [1,2,3,4,5,6];
+spinner <- uniform [1,2,3,4,5,6];
+result <- uniform {spinner,resp};
+leak(result)
