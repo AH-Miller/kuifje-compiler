@@ -1,0 +1,4 @@
+resp <- 0 [0.3] 1;
+coin <- uniform {0,1};
+result <- uniform {coin,resp};
+leak(result)
