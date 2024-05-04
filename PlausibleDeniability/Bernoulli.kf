@@ -1,0 +1,10 @@
+gamma = 1;
+K = 0;
+A = 1;
+while (A == 1) && (K < 10):
+  K = K + 1;
+  A <- 1 [gamma/K] 0;
+if K % 1 == 0:
+  r = 1;
+else:
+  r = 0;
