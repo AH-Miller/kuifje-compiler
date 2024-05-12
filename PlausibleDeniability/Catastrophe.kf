@@ -9,7 +9,7 @@ while i < N:
   Resps.append(resp);
   coin <- uniform [0, 1];
   count <- uniform [count + coin, count + resp];
-  i = i + 1;
+  i++;
 if r == 0:
   count = Resps;
 leak(count);

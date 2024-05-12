@@ -23,16 +23,16 @@ while (((B == 1) && (U == 0)) && (V == 0)) && (i < 3):
   while (D == 0) && (j < 10):
     U <- uniform [0,1]; // uniform [0..t-1];
     D <- 1 [e^(-U/t)] 0;
-    j = j + 1;
+    j++;
 
   A = 1;
   V = -1;
   while (A == 1) && (V < 5):
-    V = V + 1;
+    V++;
     A <- 1 [e^(-1)] 0;
 
   B <- 1 [0.5] 0;
-  i = i + 1;
+  i++;
 
 Z = (1-(2*B))*(U+(t*V)); // Lap_Z(t) sample
 
@@ -47,7 +47,7 @@ while k < N:
   resp <- uniform [0, 1];
   Resps.append(resp);
   count <- count + resp;
-  k = k + 1;
+  k++;
 
 noisyCount = count + Z;
 leak(noisyCount);
