@@ -1,3 +1,8 @@
+// This program demonstrates the use of the Discrete Laplace
+// Mechanism for providing ε-dp on a counting query on a 
+// database with N entries
+
+// Discrete Laplace Distribution
 // Input: Sensitivity Delta > 0, Privacy parameter ε > 0.
 // Output: Z = one sample from Lap_Z(t)
 // t = ∆/ε used in the Laplace Mechanism to provide ε-dp
@@ -39,7 +44,7 @@ Z = (1-(2*B))*(U+(t*V)); // Lap_Z(t) sample
 
 // Create database
 
-N = 5; // Set N to number of participants
+N = 5; // Set N to number of entries
 k = 0;
 Resps = [];
 count = 0;
