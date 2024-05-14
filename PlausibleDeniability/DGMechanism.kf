@@ -6,7 +6,7 @@
 // Output: Z = one sample from N_Z(0,σ^2)
 e = 2.7182818284590452353602874713526624977572;
 
-σ = 1.5;
+σ = 2;
 t = (σ div 1) + 1;
 
 B = 1;
@@ -24,7 +24,7 @@ while (C == 0) && (l < 10) :
     j = 0;
     U = 0;
     while (D == 0) && (j < 10):
-      U <- uniform [0,1]; // uniform [0..t-1];
+      U <- uniform [0,1,2]; // uniform [0..t-1];
       D <- 1 [e^(-U/t)] 0;
       j++;
 
@@ -46,16 +46,26 @@ while (C == 0) && (l < 10) :
   l++;
 
 // Create database
-
-N = 5; // Set N to number of entries
-k = 0;
-Resps = [];
 count = 0;
-while k < N:
-  resp <- uniform [0, 1];
-  Resps.append(resp);
-  count <- count + resp;
-  k++;
+Resps = [1,0,1,1,1,0,0,0,0,0,1,0,1,0,0,0,1,0,0,0,0,1,1,1,0,1,0,1,0,1,0,1,0,0];
+resp <- uniform [0, 1];
+Resps.append(resp);
+
+for r in Resps:
+  count = count + r;
 
 noisyCount = count + Z;
 leak(noisyCount);
+
+// N = 5; // Set N to number of entries
+// k = 0;
+// Resps = [];
+// count = 0;
+// while k < N:
+//  resp <- uniform [0, 1];
+//  // Resps.append(resp);
+//  count <- count + resp;
+//  k++;
+
+// noisyCount = count + Z;
+// leak(noisyCount);

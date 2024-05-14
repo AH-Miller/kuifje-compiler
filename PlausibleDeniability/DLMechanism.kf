@@ -43,16 +43,26 @@ Z = (1-(2*B))*(U+(t*V)); // Lap_Z(t) sample
 
 
 // Create database
-
-N = 5; // Set N to number of entries
-k = 0;
-Resps = [];
 count = 0;
-while k < N:
-  resp <- uniform [0, 1];
-  Resps.append(resp);
-  count <- count + resp;
-  k++;
+Resps = [1,0,1,1,1,0,0,0,0,0,1,0,1,0,0,0,1,0,0,0,0,1,1,1,0,1,0,1,0,1,0,1,0,0];
+resp <- uniform [0, 1];
+Resps.append(resp);
+
+for r in Resps:
+  count = count + r;
 
 noisyCount = count + Z;
 leak(noisyCount);
+
+// N = 5; // Set N to number of entries
+// k = 0;
+// Resps = [];
+// count = 0;
+// while k < N:
+//  resp <- uniform [0, 1];
+//  // Resps.append(resp);
+//  count <- count + resp;
+//  k++;
+
+// noisyCount = count + Z;
+// leak(noisyCount);
