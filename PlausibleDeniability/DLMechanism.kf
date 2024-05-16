@@ -6,10 +6,6 @@
 // Input: Sensitivity Delta > 0, Privacy parameter ε > 0.
 // Output: Z = one sample from Lap_Z(t)
 // t = ∆/ε used in the Laplace Mechanism to provide ε-dp
-e = 2.7182818284590452353602874713526624977572;
-
-// σ = 4.5; 
-// t = (σ div 1) + 1; For discrete Gaussian
 
 Delta = 1;
 ε = 0.5;
@@ -20,26 +16,33 @@ U = 0;
 V = 0;
 i = 0;
 
-while (((B == 1) && (U == 0)) && (V == 0)) && (i < 3):
+while (i < 10):
+  t1 = 0 if (B == 1) && (U == 0) && (V == 0) else 1;
 
-  D = 0;
-  j = 0;
-  U = 0;
-  while (D == 0) && (j < 10):
-    U <- uniform [0,1]; // uniform [0..t-1];
-    D <- 1 [e^(-U/t)] 0;
-    j++;
+  // Loop to calculate the probability distribution for U in GenerateU.kf
+  U <- (0 [0.622459] 1) if t1 == 0 else U; // t = 1
+  // U <- ([ 0.0 @ 0.448441
+  //     , 1.0 @ 0.321322
+  //     , 2.0 @ 0.230237 ]) if t1 == 0 else U; // t = 2
 
-  A = 1;
-  V = -1;
-  while (A == 1) && (V < 5):
-    V++;
-    A <- 1 [e^(-1)] 0;
+  // Loop to calculate the probability distribution for V in GenerateV.kf
+  V <- ([ 0.0 @ 0.632121
+      , 1.0 @ 0.232544
+      , 2.0 @ 0.085548
+      , 3.0 @ 0.031471
+      , 4.0 @ 0.011578
+      , 5.0 @ 0.004259
+      , 6.0 @ 0.001567
+      , 7.0 @ 0.000576
+      , 8.0 @ 0.000212
+      , 9.0 @ 0.000078
+      , 10.0@ 0.000046 ]) if t1 == 0 else V;
 
-  B <- 1 [0.5] 0;
+  B <- (1 [0.5] 0) if t1 == 0 else B;
   i++;
 
 Z = (1-(2*B))*(U+(t*V)); // Lap_Z(t) sample
+
 
 
 // Create database
