@@ -10,7 +10,6 @@ import Kuifje.Parse
 import Kuifje.Syntax 
 import Kuifje.Expr
 
-import Prelude hiding ((!!), return, fmap, (>>=))
 import Control.Lens hiding (Profunctor)
 import Data.Semigroup
 import Data.Ratio
@@ -77,7 +76,7 @@ getFromDist g s | Just x <- E.lookup g s = x
                 | otherwise = error ("Not going to happend " ++ s)
 
 exec :: String -> Dist (Dist Gamma) -> Dist (Dist Value)
-exec var = fmap (fmap (\s -> getFromDist s var))
+exec var = fmapDist (fmapDist (\s -> getFromDist s var))
 
 data MonadValue = M (Kuifje Gamma)
            | O Expr
@@ -86,6 +85,7 @@ data MonadValue = M (Kuifje Gamma)
            | C Expr MonadValue MonadValue
            | E MonadValue MonadValue Expr
            | W Expr MonadValue
+  deriving (Show)
 
 monadType :: MonadValue -> String
 monadType (A id e) = ("\nAssign: " ++ id ++ " =>> " ++ (show e))
@@ -111,27 +111,28 @@ createMonnad (M m) = m
 createMonnad (O e) = observe (evalE e)
 createMonnad (A id expr) = 
         Language.Kuifje.Syntax.update (\s -> 
-          let currS = (evalE expr) s in
-            fmap (\r -> E.add s (id, r)) currS)
+          let currS = (evalE expr) s
+           in fmapDist (\r -> E.add s (id, r)) currS)
 createMonnad (L []) = skip
 createMonnad (L ls) = createMonnad (head ls) <> createMonnad (L (tail ls))
 createMonnad (W e body) =
-        Language.Kuifje.Syntax.while (\s -> 
-                let currS = (evalE e) s in 
-                    fmap (\r -> case r of (B b) -> b) currS) (createMonnad body)
+        Language.Kuifje.Syntax.while
+            (fmapDist theBool . evalE e)
+            (createMonnad body)
 createMonnad (C e s1 s2) =
         Language.Kuifje.Syntax.cond 
-          (\s -> let currS = (evalE e) s in fmap (\r -> case r of (B b) -> b) currS) 
-          ((observe (evalE e)) <> (createMonnad s1))
-          ((observe (evalE e)) <> (createMonnad s2))
+          (fmapDist theBool . evalE e)
+          (createMonnad s1)
+          (createMonnad s2)
           --
-          -- Leaks the conditional after choose an option
-          --((createMonnad s1) <> (observe (evalE e))) 
-          --((createMonnad s2) <> (observe (evalE e)))
+          -- Leaks the conditional after evaluation, that is, branches are
+          -- equivalent to
+          --   (observe (fmapDist theBool . evalE e) <> createMonnad s1) 
+          --   (observe (fmapDist theBool . evalE e) <> createMonnad s2)
 createMonnad (E s1 s2 p) =
         Language.Kuifje.Syntax.cond
           (\s -> let p' = (evalE (Ichoice (BoolConst True) (BoolConst False) p) s)
-                  in (fmap (\r -> case r of (B b) -> b)) p')
+                  in fmapDist theBool p')
           (createMonnad s1)
           (createMonnad s2)
 

@@ -1,7 +1,9 @@
 module Kuifje.Run where
 
+import Debug.Trace (traceShowId)
+
 import Kuifje.Stmt
-import Kuifje.Translator
+import Kuifje.Translator (translateExecKuifje, fst3)
 import Kuifje.LivenessAnalysis
 import Kuifje.Parse
 import Kuifje.Value
@@ -11,34 +13,30 @@ import Kuifje.JsonPrint
 import Kuifje.CsvLoader
 import qualified Kuifje.Env as E
 
-import System.Environment
-
-import System.IO 
-import Data.Map.Strict
+import Data.IORef
 import Data.List
-import Language.Kuifje.Distribution hiding (return)
+import Data.Map.Strict
+import qualified Data.Map as Map
+import System.Environment
+import System.IO 
+import Text.PrettyPrint.Boxes (printBox)
+
+import Language.Kuifje.Distribution (Hyper, Dist, fmapDist, traverseDist)
+import qualified Language.Kuifje.Distribution as D
 import Language.Kuifje.PrettyPrint
 import Language.Kuifje.Semantics
 import Language.Kuifje.Syntax
 import Language.Kuifje.ShallowConsts
-import Text.PrettyPrint.Boxes (printBox)
-import Prelude hiding ((!!), fmap, (>>=))
-import qualified Data.Map as Map
 
-import Data.IORef
-
-getFrom g s | Just x <- E.lookup g s = x
-            | otherwise = error ("Not going to happend " ++ s)
-            
 project :: String -> Dist (Dist Gamma) -> Dist (Dist Value)
-project var = fmap (fmap (\s -> getFrom s var))
+project var = fmapDist (D.mapMaybeDist (flip E.lookup var))
 
 processFlag :: String -> String -> [(String, (Dist (Dist Value)))] -> IO ()
 processFlag "json1" fName values = createJson1 fName values
 processFlag "json2" fName values = createJson2 fName values
 processFlag f _ _ = error ("\n\n  Unknown flag:\n" ++ f ++ "\n")
 
-readFlags :: [String] -> String -> [(String, (Dist (Dist Value)))] -> IO ()
+readFlags :: [String] -> String -> [(String, Dist (Dist Value))] -> IO ()
 readFlags [] fName _ = putStrLn $ ""
 readFlags ls fName variables = do processFlag (head ls) fName variables
                                   readFlags (tail ls) fName variables
@@ -88,19 +86,19 @@ runFile filename param distrib =
     ast <- compileFile filename param
     let v = runLivenessAnalysis ast
     let monadAst = createMonnad ast
-    if v then 
-      do return (hysem monadAst distrib)
+    if v then
+      return (hysem monadAst distrib)
     else error ("\n\nCompilation fatal error.\n\n")
 
 runFileDefaultParams :: String -> [String] -> IO ()
 runFileDefaultParams s param =
   do
-    hyper <- runFile s param (uniform [E.empty])
-    let (env, _) = (toList $ runD hyper) !! 0
-    let (gamma, _) = ((toList $ runD $ env) !! 0)
+    hyper <- runFile s param (D.uniform [E.empty])
+    let (env, _) = (toList $ D.runD hyper) !! 0
+    let (gamma, _) = ((toList $ D.runD $ env) !! 0)
     let all_var = E.allVar gamma
     writeDecimalPrecision 6
-    let output = [(x, Kuifje.Run.project x hyper) | x <- all_var]
+    let output = [(x, project x hyper) | x <- all_var]
     readFlags param s output
     outputL output
 

@@ -4,49 +4,31 @@
 module Kuifje.Expr where 
 
 import qualified Kuifje.Env as E
-import qualified Data.Map as Map
 import Kuifje.Value
 import Kuifje.Parse
 import Kuifje.Syntax 
 
-import Prelude hiding ((!!), return, fmap, (>>=))
+import Control.Applicative
 import Control.Lens hiding (Profunctor)
-import Data.Semigroup
-import Data.Ratio
-import Data.Map.Strict
 import Data.List
+import qualified Data.Map as Map
+import Data.Map.Strict
+import Data.Ratio
+import Data.Semigroup
 import qualified Data.Set as DSET
 import Numeric
-
-import Language.Kuifje.Distribution
---import Kuifje.PrettyPrint 
-import Language.Kuifje.PrettyPrint 
-import Language.Kuifje.Semantics
-import Language.Kuifje.Syntax
-import Control.Applicative
-
-import System.IO 
+import System.IO
 import Text.ParserCombinators.Parsec
 import Text.ParserCombinators.Parsec.Expr
 
+import Language.Kuifje.Distribution
+import Language.Kuifje.PrettyPrint 
+import Language.Kuifje.Semantics
+import Language.Kuifje.Syntax
+
+
 (*^*) :: (RealFrac a, RealFrac b) => a -> b -> a
 x *^* y = realToFrac $ realToFrac x ** realToFrac y
-
-isText :: Value -> Bool
-isText (T _) = True
-isText _ = False
-
-isSet :: Value -> Bool
-isSet (S _) = True
-isSet _ = False
-
-isBool :: Value -> Bool
-isBool (B _) = True
-isBool _ = False
-
-isRational :: Value -> Bool
-isRational (R _) = True
-isRational _ = False
 
 aOperatorWarpper op (R x) (R y) = 
         case op of 
@@ -111,7 +93,8 @@ cOperatorWarpper IsSubstrOf (T x) (T y) = (isSubsequenceOf x y)
 cOperatorWarpper Eq (T x) (T y) = ((isInfixOf x y) && (isInfixOf y x))
 cOperatorWarpper Ne (T x) (T y) = (not ((isInfixOf x y) && (isInfixOf y x)))
 
-cOperatorWarpper op v1 v2 = error ("Operator: " ++ (show op) ++ " Not found!\n" ++ (show v1) ++ "\n" ++ (show v2))
+cOperatorWarpper op v1 v2 =
+  error ("Operator: " ++ show op ++ " not found for " ++ valuePrettyType v1 ++ " vs. " ++ valuePrettyType v2)
 
 cOperator op d1 d2 =
   D $ fromListWith (+) [((B (cOperatorWarpper op x y)), p * q) | (x, p) <- toList $ runD d1,
@@ -437,13 +420,13 @@ isTupleList ls = isTuple (head ls)
 
 evalE :: Expr -> (Gamma ~> Value)
 evalE (Var id) = \s -> case E.lookup s id of 
-                          Just v -> (return v)
+                          Just v -> returnDist v
                           otherwise -> error ("Variable " ++ id ++ " not in scope")
-evalE (RationalConst r) = \s -> return (R r)
-evalE (Text t) = \s -> return (T t)
+evalE (RationalConst r) = \s -> returnDist (R r)
+evalE (Text t) = \s -> returnDist (T t)
 evalE (Neg r) = \s -> 
         let r' = (evalE r) s in 
-            (fmap (\p -> case p of 
+            (fmapDist (\p -> case p of 
                            (R p') -> R (-1 * p'))) r'
 evalE (ExprIf cond e1 e2) = \s -> 
         let cond' = runD $ (evalE cond) s
@@ -468,15 +451,9 @@ evalE (Ichoice e1 e2 p) = \s ->
       d1 = D $ Data.Map.Strict.map (*p') $ runD e1'
       d2 = D $ Data.Map.Strict.map (*(1-p')) $ runD e2'
    in D $ unionWith (+) (runD d1) (runD d2)
-evalE (IchoiceDist e1 e2 p) = \s -> 
-  let v1' = (evalE e1) s
-      v2' = (evalE e2) s
-      p' = (evalE p) s
-      v1 = exprToValue e1 v1'
-      v2 = exprToValue e2 v2'
-      (R r) = exprToValue p p'
-      dist = createNewDist v1 v2 r
-   in return dist
+evalE (IchoiceDist e1 e2 p) = \s ->
+  let dw = fmapDist theRational $ evalE p s
+   in bindDist dw (joinDist . bernoulli (evalE e1 s) (evalE e2 s))
 evalE (Ichoices ls) = 
    if length ls == 1 
       then evalE $ head ls
@@ -489,7 +466,7 @@ evalE (IchoicesDist ls) = \s ->
        p = (1 % (toInteger (length ls)))
        vals = createDistList p ls ev
        dist = (PD (DSET.fromDistinctAscList vals))
-    in return dist
+    in returnDist dist
 evalE (Tuple e p) = \s ->
   let e' = (evalE e) s
       p' = Data.List.foldr (\x y -> case x of (R x', q) -> x'*q*y) 1
@@ -506,17 +483,17 @@ evalE (INUchoicesDist ls) = \s ->
   if (evalTList $ INUchoicesDist ls) == 1.0
      then let vals = convertINUlist ls
               dist = (PD (DSET.fromDistinctAscList vals))
-           in return dist
+           in returnDist dist
      else error ("Probability adds up to: " ++ 
           (show (evalTList $ INUchoicesDist ls)) ++
           " --> It should be 1.0" )
-evalE (BoolConst b) = \s -> return (B b)
+evalE (BoolConst b) = \s -> returnDist (B b)
 evalE (PowerSet e1) = \s -> 
        let s' = (evalE e1) s in
            sOperatorPowerSet s'
 evalE (Not b) = \s -> 
         let r' = (evalE b) s 
-         in (fmap (\bv -> case bv of 
+         in (fmapDist (\bv -> case bv of 
                             (B b') -> B (not b'))) r'
 evalE (SBinary op e1 e2) = \s ->
   let e1' = (evalE e1) s
@@ -556,7 +533,7 @@ evalE (SetIchoiceDist e) = \s ->
                                         | elem <- DSET.toList set]
                                         | (S set, p) <- toList (runD d)]
             dist = (PD (DSET.fromDistinctAscList resultList))
-         in return dist
+         in returnDist dist
 evalE (Geometric alpha low start high) =
          let alphaV = evalTList $ alpha
              lowV = round (evalTList $ low)
@@ -570,47 +547,47 @@ evalE (Geometric alpha low start high) =
              sProbs = sum probs
              resultDist = buildDist values probs
          in evalNUList $ INUchoices resultDist
-evalE (ListExpr []) = \s -> return (LS []) 
+evalE (ListExpr []) = \s -> returnDist (LS []) 
 evalE (ListExpr list) = \s ->  
          let els = evalE (ListExpr []) s
           in if (isTupleList list) == True
              then evalE (INUchoicesDist list) s
              else let ls = exprToValue (ListExpr list) els
-                  in return ls
+                  in returnDist ls
 evalE (ListElem id index) = \s -> 
          let ev1 = evalE (Var id) s
              ev2 = evalE index s
              el = exprToValue2Cntx (ListElem id index) ev1 ev2
-          in return el
+          in returnDist el
 evalE (ListElemDirect list index) = \s ->
          let ev1 = evalE (ListExpr list) s
              ev2 = evalE index s
              el = exprToValue2Cntx (ListElemDirect list index) ev1 ev2
-          in return el
+          in returnDist el
 evalE (ListAppend id elem) = \s ->
          let ev1 = evalE (Var id) s
              ev2 = evalE elem s
              el = exprToValue2Cntx (ListAppend id elem) ev1 ev2
-          in return el
+          in returnDist el
 evalE (ListInsert id index elem) = \s ->
          let ev1 = evalE (Var id) s
              ev2 = evalE elem s
              el = exprToValue2Cntx (ListInsert id index elem) ev1 ev2
-          in return el
+          in returnDist el
 evalE (ListExtend id1 id2) = \s ->
          let ev1 = evalE (Var id1) s
              ev2 = evalE (Var id2) s
              el = exprToValue2Cntx (ListExtend id1 id2) ev1 ev2
-          in return el
+          in returnDist el
 evalE (ListRemove id elem) = \s ->
          let elist = evalE (Var id) s
              el = exprToValue (ListRemove id elem) elist
-          in return el
+          in returnDist el
 evalE (ListLength list) = \s ->
          let elist = evalE list s
              el = exprToValue (ListLength list) elist
-          in return el
---evalE (TupleExpr []) = \s -> return (TP []) 
+          in returnDist el
+--evalE (TupleExpr []) = \s -> returnDist (TP []) 
 --evalE (TupleExpr list) = \s ->
 --         let hd = evalE (head list) s
 --             tl = evalE (TupleExpr (tail list)) s
@@ -633,7 +610,7 @@ evalE (TupleExpr list) = \s ->
                          tl = to1DList (tail ls)
                       in hd ++ tl
             linearList = to1DList valList
-         in return (TP linearList)
+         in returnDist (TP linearList)
 
 buildDist :: [Integer] -> [Rational] -> [Expr]
 buildDist [] [] = []
