@@ -14,7 +14,7 @@ U = 0;
 V = 0;
 i = 0;
 
-while (l < 1):
+while (l < 10):
 
   B = 1 if (C == 0) else B;
   U = 0 if (C == 0) else U;
