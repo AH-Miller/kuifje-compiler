@@ -33,7 +33,7 @@ while (i < 10):
       , 9.0 @ 0.000078
       , 10.0@ 0.000046 ]) if t1 == 0 else V;
 
-  B <- (1 [0.5] 0) if t1 == 0 else B;
+  B <- (0 [0.5] 1) if t1 == 0 else B;
   i++;
 
 Z = (1-(2*B))*(U+(t*V)); // Lap_Z(t) sample
