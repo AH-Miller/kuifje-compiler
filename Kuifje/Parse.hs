@@ -191,7 +191,7 @@ ifStmt =
      ref <- indentationBlock -- expected column indentation for the block
      reserved "if"
      econd <- expression
-     reservedOp ":"
+     symbol ":"
      whiteSpace -- eat the space to the next token
      curr <- indentation
      unless (isLessLine ref curr) (fail "if requires a new line")
@@ -205,7 +205,7 @@ ifStmtElse :: Internal.Indentation -> Parser Stmt
 ifStmtElse ref =
   (do reserved "elif"
       econd <- expression
-      reservedOp ":"
+      symbol ":"
       whiteSpace -- eat the space to the next token
       curr <- indentation
       unless (isLessLine ref curr) (fail "elif requires a new line")
@@ -214,7 +214,7 @@ ifStmtElse ref =
       stmtElse <- ifStmtElse ref
       return $ If econd (collapsedSeq stmtsElif) stmtElse) <|>
   (do reserved "else"
-      reservedOp ":"
+      symbol ":"
       whiteSpace
       curr <- indentation
       unless (isLessLine ref curr) (fail "else requires a new line")
@@ -282,7 +282,7 @@ funcStmt =
      reserved "def"
      name <- fnname
      inputs <- parens (sepBy variable (symbol ","))
-     reservedOp ":"
+     symbol ":"
      body <- codeBlock ref
      -- Output Parameters - Only in the end of the function:
      input <- getInput
@@ -298,7 +298,7 @@ whileStmt =
      ref <- indentationBlock -- expected column indentation for the block
      reserved "while"
      cond <- expression
-     reservedOp ":"
+     symbol ":"
      whiteSpace -- eat the space to the next token
      curr <- indentation -- actual indentation at the start of the block
      unless (isLessLine ref curr) (fail "while expects a new line")
@@ -308,16 +308,19 @@ whileStmt =
 
 forStmt :: Parser Stmt
 forStmt =
-  do ref <- indentationBlock
+  do lookAhead (reserved "for") -- fail early
+     ref <- indentationBlock -- expected column indentation for the block
      reserved "for"
      var <- variable
-     reservedOp "in"
-     list <- expression
-     reservedOp ":"
-     stmt <- codeBlock ref
-     input <- getInput
-     setInput (";" ++ input)
-     return $ For var list stmt
+     reserved "in"
+     elist <- expression
+     symbol ":"
+     whiteSpace -- eat the space to the next token
+     curr <- indentation -- actual indentation at the start of the block
+     unless (isLessLine ref curr) (fail "for expects a new line")
+     stmts <- stmtBlock ref
+     when (null stmts) (fail "for needs a body")
+     return $ For var elist (Seq stmts)
 
 assignStmt :: Parser Stmt
 assignStmt =
@@ -474,41 +477,40 @@ ifExpr =
      return $ ExprIf cond exprIf exprElse
 
 uniformIchoices = 
-        do reserved "uniform"
-           reservedOp "["
-           list <- sepBy expression (symbol ",")
-           reservedOp "]"
-           return $ IchoicesDist list
-           -- return $ Ichoices list
+  (do reserved "uniform"
+      symbol "["
+      list <- sepBy expression (symbol ",")
+      symbol "]"
+      return $ IchoicesDist list) <?> "uniform choice from list"
 
 notUniformIchoices = 
-        do reservedOp "["
-           list <- sepBy expression (symbol ",")
-           reservedOp "]"
-           return $ INUchoicesDist list
+  (do symbol "["
+      list <- sepBy expression (symbol ",")
+      symbol "]"
+      return $ INUchoicesDist list) <?> "non-uniform choice from list"
 
 uniformIchoicesListComp = 
-        do reserved "uniform"
-           reservedOp "["
-           l <- integer
-           symbol ".."
-           r <- integer
-           reservedOp "]"
-           return $ IchoicesDist [(RationalConst (x % 1)) | x <- [l..r]]
-           -- return $ Ichoices [(RationalConst (x % 1)) | x <- [l..r]]
+  (do reserved "uniform"
+      symbol "["
+      l <- integer
+      symbol ".."
+      r <- integer
+      symbol "]"
+      return $ IchoicesDist [(RationalConst (x % 1)) | x <- [l..r]]
+  ) <?> "uniform choice from range"
 
 uniformFromSet = 
-        do reserved "uniform"
-           reservedOp "{"
-           list <- sepBy expression (symbol ",")
-           reservedOp "}"
-           let values = Set.fromList list
-           return $ SetIchoiceDist (Eset values)
+  (do reserved "uniform"
+      reservedOp "{"
+      list <- sepBy expression (symbol ",")
+      reservedOp "}"
+      let values = Set.fromList list
+      return $ SetIchoiceDist (Eset values)) <?> "uniform choice from set"
 
 uniformSetVar = 
-        do reserved "uniform"
-           expr <- liftM Var variable
-           return $ SetIchoiceDist expr
+  (do reserved "uniform"
+      expr <- liftM Var variable
+      return $ SetIchoiceDist expr) <?> "uniform choice from set variable"
 
 getParam :: Integer -> [Expr] -> Expr
 getParam 0 ls = (head ls)
@@ -536,18 +538,18 @@ tupleExpr =
            reservedOp ")"
            return $ TupleExpr ([exp] ++ list)
 
-listExpr = 
-        do reservedOp "["
-           elements <- sepBy expression (symbol ",")
-           reservedOp "]"
-           return $ ListExpr elements
+listExpr =
+  (do symbol "["
+      elements <- sepBy expression (symbol ",")
+      symbol "]"
+      return $ ListExpr elements) <?> "list expression"
 
 listElExpr =
-        do varID <- variable
-           reservedOp "["
-           varIndex <- expression
-           reservedOp "]"
-           return $ ListElem varID varIndex
+  (do varID <- variable
+      symbol "["
+      varIndex <- expression
+      symbol "]"
+      return $ ListElem varID varIndex) <?> "list indexing expression"
 
 listAppend =
         do var <- variable
