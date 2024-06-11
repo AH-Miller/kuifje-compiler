@@ -2,20 +2,25 @@ module Main where
 
 import Control.Applicative (empty)
 import Control.Monad (when)
+import Data.List (isPrefixOf)
 
 import System.Environment
 import Kuifje.Run
 
+main :: IO ()
 main =
   do
     args <- getArgs
-    if null args
-    then putStrLn "provide a file"
-    else 
-      let file = head args
-          flags = tail args
-       in runFileDefaultParams file flags
---           in do runHyper file flags
---          case args of
---            [file]    -> do runHyper file
---            otherwise -> error "Please provide a file."
+    case args of
+      [] ->
+        putStrLn "please provide a file"
+      (mode : file : flags) | not . isPrefixOf "-" $ file ->
+        case mode of
+          "run" -> runFileDefaultParams file flags
+          "ldists" | (invar:svals:_) <- flags ->
+                      leakDists file invar svals
+                   | otherwise ->
+                      putStrLn "ldists requires an input var and a list of input values"
+          _ -> putStrLn "provided an unknown compiler mode"
+      (file : flags) ->
+        runFileDefaultParams file flags

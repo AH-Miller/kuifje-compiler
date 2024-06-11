@@ -17,11 +17,14 @@ import Data.Ratio
 import Data.Set (Set)
 import qualified Data.Set as Set
 import System.IO
-import Text.ParserCombinators.Parsec
-import Text.Parsec.Char
-import Text.Parsec (ParsecT)
-import Text.ParserCombinators.Parsec.Expr
-import Text.ParserCombinators.Parsec.Language
+
+import Text.ParserCombinators.Parsec (Parser, parse, (<?>), (<|>), eof, sepBy,
+   sepEndBy, try, char, lookAhead, skipMany, digit, many, many1, alphaNum,
+   letter,
+   setInput, getInput, getPosition, sourceColumn, sourceLine)
+import Text.Parsec (ParsecT, Parsec)
+import Text.ParserCombinators.Parsec.Expr (Assoc(..), Operator(..), buildExpressionParser)
+import Text.ParserCombinators.Parsec.Language (emptyDef)
 import qualified Text.Parsec.Indent as Indent
 import qualified Text.Parsec as ParsecCl
 import qualified Text.Parsec.Indent.Explicit as Explicit
@@ -31,13 +34,20 @@ import qualified Text.ParserCombinators.Parsec.Token as Token
 import Kuifje.Syntax
 
 --
+-- Utilities
+--
+
+(<<) :: Monad m => m a -> m b -> m a
+s << t = do { x <- s; t; return x }
+
+--
 -- Parsec Language Setup
 --
 
 languageDef =
-   emptyDef { Token.commentStart    = "/*"
-            , Token.commentEnd      = "*/"
-            , Token.commentLine     = "//"
+   emptyDef { Token.commentStart    = "#--"
+            , Token.commentEnd      = "--#"
+            , Token.commentLine     = "#"
             , Token.identStart      = letter
             , Token.identLetter     = alphaNum
             , Token.reservedNames   = [ "if"
@@ -68,6 +78,7 @@ languageDef =
                                       , "return"
                                       , "csv"
                                       , "for"
+                                      , "assume"
                                       ]
             , Token.reservedOpNames = ["+"
                                       , "-"
@@ -85,6 +96,9 @@ languageDef =
                                       , "!="
                                       , "&&"
                                       , "||"
+                                      , "and"
+                                      , "or"
+                                      , "not"
                                       , "%"
                                       , "@"
                                       , "::"
@@ -117,11 +131,8 @@ symbol        = Token.symbol        lexer
 stringLiteral = Token.stringLiteral lexer
 
 --
--- Generic
+-- General parsers
 --
-
-(<<) :: Monad m => m a -> m b -> m a
-s << t = do { x <- s; t; return x }
 
 stringSymbol :: Parser String
 stringSymbol = 
@@ -178,6 +189,7 @@ sTerm = (    (try plusplusStmt  <?> "sTerm:plusplus")
          <|> (skipStmt          <?> "sTerm:skip")
          <|> (vidStmt           <?> "sTerm:vid")
          <|> (leakStmt          <?> "sTerm:leak")
+         <|> (assumeStmt        <?> "sTerm:assume")
          <|> (assignStmt        <?> "sTerm:assign"))
 
 checkIndent :: Expr -> Internal.Indentation -> Internal.Indentation -> Bool
@@ -190,14 +202,14 @@ checkIndent expr ref pos =
 ifStmt :: Parser Stmt
 ifStmt =
   do lookAhead (reserved "if") -- fail early
-     ref <- indentationBlock -- expected column indentation for the block
+     ref <- indentation -- current indentation
      reserved "if"
      econd <- expression
      symbol ":"
      whiteSpace -- eat the space to the next token
      curr <- indentation
-     unless (isLessLine ref curr) (fail "if requires a new line")
-     stmtsT <- stmtBlock ref
+     unless (isLessLine ref curr) (fail "if requires an indented new line")
+     stmtsT <- stmtBlock curr
      when (null stmtsT) (fail "if needs a body")
      stmtElse <- try (ifStmtElse ref) <|> return Skip
      return $ If econd (collapsedSeq stmtsT) stmtElse
@@ -210,17 +222,17 @@ ifStmtElse ref =
       symbol ":"
       whiteSpace -- eat the space to the next token
       curr <- indentation
-      unless (isLessLine ref curr) (fail "elif requires a new line")
-      stmtsElif <- stmtBlock ref
+      unless (isLessLine ref curr) (fail "elif requires an indented new line")
+      stmtsElif <- stmtBlock curr
       when (null stmtsElif) (fail "elif needs a body")
-      stmtElse <- ifStmtElse ref
+      stmtElse <- ifStmtElse curr
       return $ If econd (collapsedSeq stmtsElif) stmtElse) <|>
   (do reserved "else"
       symbol ":"
       whiteSpace
       curr <- indentation
-      unless (isLessLine ref curr) (fail "else requires a new line")
-      stmts <- stmtBlock ref
+      unless (isLessLine ref curr) (fail "else requires an indented new line")
+      stmts <- stmtBlock curr
       when (null stmts) (fail "else needs a body")
       return $ collapsedSeq stmts)
 
@@ -229,12 +241,6 @@ indentation :: Monad m => ParsecT s u m Internal.Indentation
 indentation = do
     pos <- getPosition
     return $! Internal.Indentation {Internal.iLine = sourceLine pos, Internal.iColumn = sourceColumn pos}
-
--- | Obtain the current indentation, to be used as a reference later.
-indentationBlock :: Monad m => ParsecT s u m Internal.Indentation
-indentationBlock = do
-    pos <- getPosition
-    return $! Internal.Indentation {Internal.iLine = sourceLine pos, Internal.iColumn = ((sourceColumn pos) + 2)}
 
 -- | Verifies if the position is in the same position
 --   N.B. requires both the same column, and the same *line*
@@ -264,11 +270,8 @@ stmtBlock ref =
   (do
     whiteSpace -- clear whitespace before the first statement
     curr <- indentation
-   --  !_ <- trace ("(ref " ++ show ref ++ ")") . traceWith (\x -> "(curr " ++ show x ++ ")") <$> return ()
-    guard (isSameCol ref curr || isSameLine ref curr) -- when not the same in line or col, early exit
-   --  !_ <- traceShowId . takeWhile ((/=) '\n') <$> getInput
+    unless (isSameCol ref curr || isSameLine ref curr) (fail "statement block at incorrect indentation level") -- when not the same in line or col, early exit
     c <- statement -- statement eats its trailing whitespace
-   --  let !_ = traceShowId c
     skipMany (whiteSpace << semi) -- remove semicolons if are any
     cs2 <- stmtBlock ref <|> return []
     return (c : cs2)) <?> "statement block"
@@ -280,7 +283,7 @@ codeBlock ref = collapsedSeq <$> stmtBlock ref <?> "code block"
 funcStmt :: Parser Stmt
 funcStmt = 
   do lookAhead (reserved "def") -- fail early
-     ref <- indentationBlock
+     ref <- indentation
      reserved "def"
      name <- fnname
      inputs <- parens (sepBy variable (symbol ","))
@@ -297,21 +300,21 @@ returnStmt = reserved "return" >> ReturnStmt <$> expression
 whileStmt :: Parser Stmt
 whileStmt =
   do lookAhead (reserved "while") -- fail early
-     ref <- indentationBlock -- expected column indentation for the block
+     ref <- indentation -- current indentation
      reserved "while"
      cond <- expression
      symbol ":"
      whiteSpace -- eat the space to the next token
      curr <- indentation -- actual indentation at the start of the block
-     unless (isLessLine ref curr) (fail "while expects a new line")
-     stmts <- stmtBlock ref
+     unless (isLessLine ref curr) (fail "while expects an indented new line")
+     stmts <- stmtBlock curr
      when (null stmts) (fail "while needs a body")
      return $ While cond (collapsedSeq stmts)
 
 forStmt :: Parser Stmt
 forStmt =
   do lookAhead (reserved "for") -- fail early
-     ref <- indentationBlock -- expected column indentation for the block
+     ref <- indentation -- current indentation
      reserved "for"
      var <- variable
      reserved "in"
@@ -319,8 +322,8 @@ forStmt =
      symbol ":"
      whiteSpace -- eat the space to the next token
      curr <- indentation -- actual indentation at the start of the block
-     unless (isLessLine ref curr) (fail "for expects a new line")
-     stmts <- stmtBlock ref
+     unless (isLessLine ref curr) (fail "for expects an indented new line")
+     stmts <- stmtBlock curr
      when (null stmts) (fail "for needs a body")
      return $ For var elist (Seq stmts)
 
@@ -369,11 +372,19 @@ vidStmt =
 
 leakStmt :: Parser Stmt
 leakStmt = 
-  do reserved "leak" <|> reserved "observe" -- <|> reserved "print"
+  do reserved "leak" <|> reserved "observe" <|> reserved "print"
      reservedOp "("
      expr <- expression
      reservedOp ")"
      return $ Leak expr
+
+assumeStmt :: Parser Stmt
+assumeStmt = 
+  do reserved "assume"
+     reservedOp "("
+     expr <- expression
+     reservedOp ")"
+     return $ Assume expr
 
 readStmt :: Parser Stmt
 readStmt =
@@ -407,8 +418,8 @@ listCallStmt =
 
 expression :: Parser Expr
 expression =
-   buildExpressionParser eOperators eTerm << whiteSpace
-      <?> "expression"
+  buildExpressionParser eOperators eTerm << whiteSpace
+    <?> "expression"
 
 eOperators =
         [ [Prefix (reservedOp "-"   >> return Neg               )          ]
@@ -428,15 +439,18 @@ eOperators =
            Infix  (reservedOp "isSub"  >> return (SBinary IsSubOf)) AssocLeft]
         , [Infix  (reservedOp "&&"  >> return (BBinary And     )) AssocLeft,
            Infix  (reservedOp "||"  >> return (BBinary Or      )) AssocLeft]
-        , [Infix  (kChoice IchoiceDist)                               AssocLeft]
-        , [Infix  (reservedOp ">"   >> return (RBinary Gt)      ) AssocLeft] 
-        , [Infix  (reservedOp "<"   >> return (RBinary Lt)      ) AssocLeft] 
-        , [Infix  (reservedOp ">="  >> return (RBinary Ge)      ) AssocLeft] 
-        , [Infix  (reservedOp "<="  >> return (RBinary Le)      ) AssocLeft] 
-        , [Infix  (reservedOp "=="  >> return (RBinary Eq)      ) AssocLeft] 
-        , [Infix  (reservedOp "!="  >> return (RBinary Ne)      ) AssocLeft]
-        , [Infix  (reservedOp "strIsSub"  >> return (RBinary IsSubstrOf) ) AssocLeft]
-        , [Infix  (reservedOp "@"   >> return Tuple             ) AssocLeft]
+        , [Infix  (kChoice IchoiceDist)                           AssocLeft]
+        , [Infix  (reservedOp ">"   >> return (RBinary Gt))       AssocLeft]
+        , [Infix  (reservedOp "<"   >> return (RBinary Lt))       AssocLeft]
+        , [Infix  (reservedOp ">="  >> return (RBinary Ge))       AssocLeft]
+        , [Infix  (reservedOp "<="  >> return (RBinary Le))       AssocLeft]
+        , [Infix  (reservedOp "=="  >> return (RBinary Eq))       AssocLeft]
+        , [Infix  (reservedOp "!="  >> return (RBinary Ne))       AssocLeft]
+        , [Infix  (reservedOp "strIsSub" >> return (RBinary IsSubstrOf)) AssocLeft]
+        , [Prefix (reservedOp "not" >> return Not)]
+        , [ Infix  (reservedOp "and" >> return (BBinary And))      AssocLeft
+          , Infix  (reservedOp "or"  >> return (BBinary Or))       AssocLeft
+          ]
         ]
 
 eTermR :: Parser Expr
@@ -536,11 +550,9 @@ setExpr =
 
 tupleExpr =
         do reservedOp "("
-           exp <- expression
-           reserved ","
-           list <- sepBy expression (symbol ",")
+           es <- sepEndBy expression (reservedOp ",")
            reservedOp ")"
-           return $ TupleExpr ([exp] ++ list)
+           return $ TupleExpr es
 
 listExpr =
   (do symbol "["
@@ -612,34 +624,24 @@ callExpr =
            reservedOp ")" 
            return $ CallExpr name parameters
 
--- Discrete gaussian
-dgaussianOnList =
-   do
-      reserved "dgaussian"
-      mu <- expression
-      sigma <- expression
-      vals <- expression
-      return $ DGaussianDist mu sigma vals
-
--- Discrete Laplace
-dlaplaceOnList =
-   do
-      reserved "dlaplace"
-      eps <- expression
-      vals <- expression
-      return $ DLaplaceDist eps vals
+-- | Parse a program. Will fail if it doesn't reach the eof
+kuifjeProg :: Parser Stmt
+kuifjeProg =
+   ((indentation >>= codeBlock) <<
+      whiteSpace <<
+      eof) <?> "program"
 
 
 -- Output only
 parseString :: String -> Stmt
 parseString str =
-        case parse (indentation >>= codeBlock) "" str of
+        case parse kuifjeProg "" str of
           Left e  -> error $ show e
           Right r -> r
 
 parseFile :: String -> IO Stmt
 parseFile file =
         do program  <- readFile file
-           case parse (indentation >>= codeBlock) "" program of
+           case parse kuifjeProg "" program of
                 Left e  -> print e >> fail "parse error"
                 Right r -> return r
